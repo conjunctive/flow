@@ -4,7 +4,7 @@
 
 ;; Author: Conjunctive <conjunctive@protonmail.com>
 ;; Keywords: process filter chain
-;; Version: 0.0.1
+;; Version: 0.0.2
 ;; URL: https://github.com/conjunctive/flow
 ;; Package-Requires: ((emacs "26") cl-lib)
 
@@ -26,15 +26,23 @@
 ;; (deflow sleep-three
 ;;   "Sleep for three seconds."
 ;;   (step :name "step1"
+;;         :log "./log-step1"
+;;         :cwd "~"
 ;;         :command "sleep 1 && echo \"one\""
 ;;         :regex "one")
 ;;   (step :name "step2"
-;;         :command "sleep 1 && echo \"two\""
+;;         :log "./log-step2"
+;;         :cwd "~"
+;;         :command (list "sleep 1"
+;;                        "&& echo \"two\"")
 ;;         :regex "two")
 ;;   (step :name "step3"
-;;         :command "sleep 1 && echo \"three\""
-;;         :regex "three")
-;;   (print "done"))
+;;         :log "./log-step3"
+;;         :cwd "~"
+;;         :command (list "sleep 1"
+;;                        "&& echo \"three\"")
+;;         :regex "\\(three\\|four\\)")
+;;   (message result))
 ;;
 ;; (sleep-three)
 
@@ -45,21 +53,41 @@
 (require 'cl-seq)
 (require 'subr-x)
 
-(defun step-filter (regex action)
+(defun step-filter (regex action cwd &optional log)
   (lexical-let ((regex regex)
-                (action action))
-    (lambda (proc str)
-      (when (string-match-p regex str)
-        (funcall action)))))
+                (action action)
+                (log-file (when log (concat (file-name-as-directory cwd) log)))
+                (default-directory cwd)
+                (stepped-p nil))
+    (if (and (stringp log-file)
+             (file-exists-p (file-name-directory log-file)))
+        (lambda (proc str)
+          (interactive)
+          (write-region str nil log-file t 4096)
+          (save-match-data
+            (when (and (null stepped-p)
+                       (string-match regex str))
+              (prog1 (setq stepped-p t)
+                (funcall action (match-string 1 str))))))
+      (lambda (proc str)
+        (interactive)
+        (when (and (null stepped-p)
+                   (string-match-p regex str))
+          (prog1 (setq stepped-p t)
+            (funcall action)))))))
 
-(cl-defun step (&key name command regex action)
-  (let ((proc (start-process-shell-command name nil command)))
-    (set-process-filter proc (step-filter regex action))))
+(cl-defun step (&key name command regex action (log nil) (cwd default-directory))
+  (let ((default-directory cwd)
+        (cmd (if (stringp command) command
+               (cl-reduce (lambda (v acc) (concat v " " acc)) command))))
+    (set-process-filter (start-process-shell-command name nil cmd)
+                        (step-filter regex action cwd log))))
 
+;;;###autoload
 (defmacro flow (&rest steps)
   `(lambda ()
      ,(cl-reduce (lambda (stepp acc)
-                   (append stepp (list :action `(lambda () ,acc))))
+                   (append stepp (list :action `(lambda (&optional result) ,acc))))
                  steps
                  :from-end t)))
 
@@ -71,6 +99,6 @@
      (interactive)
      ,`(funcall (flow ,@body))))
 
-(provide 'deflow)
+(provide 'flow)
 
 ;;; flow.el ends here
