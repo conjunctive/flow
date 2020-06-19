@@ -1,0 +1,70 @@
+* Flow
+  Filtered process chains
+
+** Examples
+   Flow that sleeps for nine seconds.
+   #+BEGIN_SRC emacs-lisp
+     (defun started (step)
+       "Function to run when the process has started.
+     STEP is the current step being invoked."
+       (message (concat "Started: " (gethash :name step))))
+
+     (defun finished (step &optional result)
+       "Function to run when the regular expression has been matched on the process's output.
+     STEP is the current step being invoked.
+     RESULT is the matched value of the first parenthesized expression in the regular expression.
+     For example, the RESULT of the following regular expression would be \"bc\".
+     (string= \"bc\"
+              (let ((string \"abcd\"))
+                (when (string-match \"a\\(.?*\\)d\" string)
+                  (match-string 1 string))))"
+       (message (concat "Finished: " (gethash :name step))))
+
+     (defun cleanup (step &optional result)
+       "Function to run when the last step has finished.
+     Deletes any remaining processes and all of the log files.
+     STEP is the current step being invoked.
+     RESULT is the matched value of the first parenthesized expression in the regular expression."
+       (message (concat "Result: " result))
+       (dolist (proc (processes step))
+         (when proc
+           (prog1 (message (concat "Deleting process: " (process-name proc)))
+             (delete-process proc))))
+       (dolist (log-file (log-files step))
+         (when (and (stringp log-file)
+                    (file-exists-p log-file))
+           (prog1 (message (concat "Deleting log file: " log-file))
+             (delete-file log-file)))))
+
+     (defun sleep-nine-seconds ()
+       "Sleep for nine seconds."
+       (interactive)
+       (flow (step :name "step1"
+                   :log "log-step1"
+                   :cwd "~"
+                   :command "sleep 3 && echo \"one\""
+                   :pre 'started
+                   :regex "one"
+                   :post 'finished)
+             (step :name "step2"
+                   :log "log-step2"
+                   :cwd "~"
+                   :command (list "sleep 3"
+                                  "&& echo \"two\"")
+                   :pre 'started
+                   :regex "two"
+                   :post 'finished)
+             (step :name "step3"
+                   :log "log-step3"
+                   :cwd "~"
+                   :command (list "sleep 3"
+                                  "&& echo \"three\"")
+                   :pre 'started
+                   :regex "\\(three\\|four\\)"
+                   :post 'cleanup)))
+
+     (sleep-nine-seconds)
+   #+END_SRC
+
+** License
+   This project is licensed under the GNU Affero General Public License version 3.
