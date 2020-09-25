@@ -4,7 +4,7 @@
 
 ;; Author: Conjunctive <conjunctive@protonmail.com>
 ;; Keywords: process filter chain
-;; Version: 1.0.0
+;; Version: 1.0.1
 ;; URL: https://github.com/conjunctive/flow
 ;; Package-Requires: ((emacs "26") cl-lib)
 
@@ -142,6 +142,13 @@
       (puthash :pre pre step)
       (puthash :post post step))))
 
+(defun retrace (step)
+  "Create a shallow copy of a STEP where :action and :caller are nullified."
+  (let ((s (copy-hash-table step)))
+    (prog1 s
+      (remhash :action s)
+      (remhash :caller s))))
+
 (defun invoke (step)
   (let* ((command (gethash :command step))
          (pre (gethash :pre step))
@@ -188,10 +195,11 @@
 ;;;###autoload
 (defun flow (&rest steps)
   (invoke
-   (cl-reduce (lambda (step acc)
-                (prog1 step
-                  (puthash :caller step acc)
-                  (puthash :action acc step)))
+   (cl-reduce (lambda (step path)
+                (let ((s (retrace step)))
+                  (prog1 s
+                    (puthash :caller s path)
+                    (puthash :action path s))))
               steps
               :from-end t)))
 
